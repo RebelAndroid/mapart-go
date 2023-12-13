@@ -22,6 +22,7 @@
           devShells.default = mkShell {
             buildInputs = [
               go
+              gopls
             ];
           };
         }

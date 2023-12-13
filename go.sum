@@ -2,6 +2,8 @@ github.com/Tnze/go-mc v1.20.1-pre1 h1:qSfya7XUnrp2zW8dHJSybs3R7mtLrvp+6Zm+ourb9W
 github.com/Tnze/go-mc v1.20.1-pre1/go.mod h1:c1znJQglgqa1Jjs3Dr29woN/msguiJrlNtWXhKedh2U=
 github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
+github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/elvis972602/go-litematica-tools v0.0.0-20231113082124-dea517c3f138 h1:ffdUh6dj1jAUrBH0U5PrUv9+0XSHMXeidX0kSFk4+I4=
 github.com/elvis972602/go-litematica-tools v0.0.0-20231113082124-dea517c3f138/go.mod h1:7No45ubyNXb0mml0YnIw7D1V69d0Bia3pz2eg5iIl30=
 github.com/emirpasic/gods v1.18.1 h1:FXtiHYKDGKCW2KzwZKx0iC0PQmdlorYgdFG9jPXJ1Bc=

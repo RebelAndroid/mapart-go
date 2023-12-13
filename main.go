@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/makeworld-the-better-one/dither/v2"
 
 	"github.com/elvis972602/go-litematica-tools/schematic"
@@ -22,6 +23,12 @@ const (
 	UP           // higher level than the block to the north
 	DOWN         // lower level than the block to the north
 )
+
+type Sequence struct {
+	direction int
+	height    int
+	length    int
+}
 
 type Block struct {
 	id string
@@ -107,6 +114,7 @@ func make_palette() ([]string, []color.Color, []int) {
 		Bdown := uint8(B * 180 / 255)
 		A := uint8(255)
 
+		// The order of left, up, and down MUST MATCH the order of the constants
 		palette_colors = append(palette_colors, color.NRGBA{R: Rlevel, G: Glevel, B: Blevel, A: A})
 		palette_names = append(palette_names, record[3])
 		palette_levels = append(palette_levels, LEVEL)
@@ -140,16 +148,6 @@ func make_columns(img_paletted *image.Paletted) [][]uint8 {
 		}
 	}
 
-	if len(slices) != width {
-		log.Fatal("slices length should be equal to width ", len(slices), width)
-	}
-
-	for x := 0; x < width; x++ {
-		if len(slices[x]) != height {
-			log.Fatal("all slices[x] should be equal to height")
-		}
-	}
-
 	return slices
 }
 
@@ -162,41 +160,125 @@ func make_block_states(column []uint8, palette_names []string, block_choices map
 	return block_states
 }
 
-func make_elevations(directions []int) []int {
-	return []int{}
-}
+func make_elevations(sequences []Sequence, directions []int) []int {
+	// create elevations with initial dummy block
+	elevations := []int{0}
 
-struct Sequnce {
-	
-}
-
-func make_sequences(directions []int) []struct{ int int } {
-
-	sequences := []struct {
-		int
-		int
-	}{}
-
-	sequences = append(sequences, struct {
-		int
-		int
-	}{0, 0})
-
-	direction := directions[0]
-	length := 0
-	for x := 0; x < len(directions); x++ {
-		if direction != directions[x] {
-			sequences = append(sequences, struct{ int int }{direction, length})
-			direction = directions[x]
-			length = 0
+	for i := 0; i < len(sequences); i++ {
+		if sequences[i].direction == LEVEL {
+			if len(sequences) != 1 {
+				log.Fatal("column starting with level sequence should not have multiple sequences")
+			}
+			// a flat level at zero, length is plus one for the dummy block at the start
+			for y := 0; y < len(directions); y++ {
+				elevations = append(elevations, 0)
+			}
+		} else if sequences[i].direction == UP {
+			for j := 0; j < sequences[i].length; j++ {
+				direction := directions[len(elevations)-1]
+				if direction == LEVEL {
+					elevations = append(elevations, elevations[len(elevations)-1])
+				} else if direction == UP {
+					elevations = append(elevations, elevations[len(elevations)-1]+1)
+				} else {
+					log.Fatal("unexpected DOWN in UP sequence")
+				}
+			}
+		} else if sequences[i].direction == DOWN {
+			for j := 0; j < sequences[i].length; j++ {
+				direction := directions[len(elevations)-1]
+				if direction == LEVEL {
+					elevations = append(elevations, elevations[len(elevations)-1])
+				} else if direction == DOWN {
+					elevations = append(elevations, elevations[len(elevations)-1]-1)
+				} else {
+					spew.Dump(elevations)
+					log.Fatal("unexpected UP in DOWN sequence at ")
+				}
+			}
 		}
 	}
+	min_elevation := 1000000
+	for i := 0; i < len(elevations); i++ {
+		min_elevation = min(min_elevation, elevations[i])
+	}
+
+	// if any portion of the structure goes to low, raise the entire column so it fits
+	if min_elevation < 0 {
+		for i := 0; i < len(elevations); i++ {
+			elevations[i] -= min_elevation
+		}
+	}
+
+	for i := 0; i < len(directions); i++ {
+		if directions[i] == LEVEL && elevations[i] != elevations[i+1] {
+			spew.Dump(i, elevations, directions, sequences)
+			log.Fatal("expected LEVEL")
+		}
+		if directions[i] == DOWN && elevations[i] <= elevations[i+1] {
+			spew.Dump(i, elevations, directions, sequences)
+			log.Fatal("expected DOWN")
+		}
+		if directions[i] == UP && elevations[i] >= elevations[i+1] {
+			spew.Dump(i, elevations, directions, sequences)
+			log.Fatal("expected UP")
+		}
+	}
+
+	return elevations
+}
+
+func make_sequences(directions []int) []Sequence {
+	sequences := []Sequence{}
+
+	height := 0
+	length := 0
+	direction := LEVEL
+
+	for i := 0; i < len(directions); i++ {
+		if directions[i] == LEVEL {
+			length++
+		} else if directions[i] != direction {
+			if direction == LEVEL {
+				direction = directions[i]
+				length++
+				height++
+			} else {
+				sequences = append(sequences, Sequence{
+					direction: direction,
+					height:    height,
+					length:    length,
+				})
+				height = 1
+				length = 1
+				direction = directions[i]
+			}
+		} else {
+			length++
+			height++
+		}
+	}
+
+	sequences = append(sequences, Sequence{
+		direction: direction,
+		height:    height,
+		length:    length,
+	})
 
 	return sequences
 }
 
-func main() {
+func make_directions(column []uint8) []int {
+	directions := []int{}
 
+	for y := 0; y < len(column); y++ {
+		directions = append(directions, int(column[y])%3)
+	}
+
+	return directions
+}
+
+func main() {
 	input_file, err := os.Open("input.jpg")
 	if err != nil {
 		log.Fatal("an error occured in opening input.jpg: ", err)
@@ -223,6 +305,28 @@ func main() {
 
 	for x := 0; x < len(columns); x++ {
 		block_states = append(block_states, make_block_states(columns[x], palette_names, block_choices))
+	}
+
+	directions := [][]int{}
+
+	for x := 0; x < len(columns); x++ {
+		directions = append(directions, make_directions(columns[x]))
+	}
+
+	sequences := [][]Sequence{}
+
+	for x := 0; x < len(columns); x++ {
+		sequences = append(sequences, make_sequences(directions[x]))
+	}
+
+	elevations := [][]int{}
+
+	for x := 0; x < len(columns); x++ {
+
+		elevations = append(elevations, make_elevations(sequences[x], directions[x]))
+		if x == 0 {
+			spew.Dump(elevations[0], sequences[0], directions[0])
+		}
 	}
 
 	output_file, err := os.Create("output.png")
