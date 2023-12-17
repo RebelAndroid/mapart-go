@@ -38,52 +38,20 @@ func (b Block) ID() string {
 	return b.id
 }
 
-func make_block_choices() map[string]schematic.BlockState {
-	file, err := os.Open("block_choices.csv")
-	if err != nil {
-		log.Fatal("an error occured in opening block_choices.csv: ", err)
-	}
-
-	reader := csv.NewReader(file)
-
-	block_choices := map[string]schematic.BlockState{}
-
-	for {
-		record, err := reader.Read()
-
-		if err == io.EOF {
-			break
-		}
-
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		_, present := block_choices[record[0]]
-		if present {
-			log.Fatal("duplicate entry in block choices: ", record[0])
-		}
-
-		block := Block{
-			id: record[1],
-		}
-
-		block_choices[record[0]] = schematic.NewBlockState(block)
-	}
-
-	return block_choices
+type PaletteColor struct {
+	color color.Color
+	name  string
+	block Block
 }
 
-func make_palette() ([]string, []color.Color, []int) {
+func make_palette() []PaletteColor {
 
 	palette_file, err := os.Open("blockdata.csv")
 	if err != nil {
 		log.Fatal("an error occured in opening input.jpg: ", err)
 	}
 
-	palette_names := []string{}
-	palette_colors := []color.Color{}
-	palette_levels := []int{}
+	palette := []PaletteColor{}
 
 	palette_reader := csv.NewReader(palette_file)
 
@@ -97,7 +65,7 @@ func make_palette() ([]string, []color.Color, []int) {
 			log.Fatal(err)
 		}
 
-		if len(record) != 4 {
+		if len(record) != 5 {
 			log.Fatal("unexpected number of values in blockdata.csv:", len(record))
 		}
 		R, _ := strconv.Atoi(record[0])
@@ -114,50 +82,46 @@ func make_palette() ([]string, []color.Color, []int) {
 		Bdown := uint8(B * 180 / 255)
 		A := uint8(255)
 
-		// The order of left, up, and down MUST MATCH the order of the constants
-		palette_colors = append(palette_colors, color.NRGBA{R: Rlevel, G: Glevel, B: Blevel, A: A})
-		palette_names = append(palette_names, record[3])
-		palette_levels = append(palette_levels, LEVEL)
-
-		palette_colors = append(palette_colors, color.NRGBA{R: Rup, G: Gup, B: Bup, A: A})
-		palette_names = append(palette_names, record[3])
-		palette_levels = append(palette_levels, UP)
-
-		palette_colors = append(palette_colors, color.NRGBA{R: Rdown, G: Gdown, B: Bdown, A: A})
-		palette_names = append(palette_names, record[3])
-		palette_levels = append(palette_levels, DOWN)
+		// must be in the same order as the "enum"
+		palette = append(palette, PaletteColor{color: color.NRGBA{R: Rlevel, G: Glevel, B: Blevel, A: A}, name: record[3] + "LEVEL", block: Block{record[4]}})
+		palette = append(palette, PaletteColor{color: color.NRGBA{R: Rup, G: Gup, B: Bup, A: A}, name: record[3] + "UP", block: Block{record[4]}})
+		palette = append(palette, PaletteColor{color: color.NRGBA{R: Rdown, G: Gdown, B: Bdown, A: A}, name: record[3] + "DOWN", block: Block{record[4]}})
 	}
 
-	if !(len(palette_levels) == len(palette_names) && len(palette_levels) == len(palette_colors)) {
-		log.Fatal("expected palette_levels, palette_names, and palette_colors lengths to be equal. ", len(palette_levels), ", ", len(palette_names), ", ", len(palette_colors))
-	}
-
-	return palette_names, palette_colors, palette_levels
+	return palette
 }
 
-func make_columns(img_paletted *image.Paletted) [][]uint8 {
+func make_color_palette(palette []PaletteColor) []color.Color {
+	colors := []color.Color{}
+
+	for i := 0; i < len(palette); i++ {
+		colors = append(colors, palette[i].color)
+	}
+
+	return colors
+}
+
+func make_columns(img_paletted *image.Paletted, palette []PaletteColor) [][]uint8 {
 	width := img_paletted.Rect.Size().X
 	height := img_paletted.Rect.Size().Y
-	stride := img_paletted.Stride
 	var slices [][]uint8 = [][]uint8{}
 
 	for x := 0; x < width; x++ {
 		slices = append(slices, []uint8{})
 		for y := 0; y < height; y++ {
-			slices[x] = append(slices[x], img_paletted.Pix[x+y*stride])
+			index := img_paletted.ColorIndexAt(x, y)
+			r1, g1, b1, a1 := img_paletted.At(x, y).RGBA()
+			r2, g2, b2, a2 := palette[index].color.RGBA()
+
+			if r1 != r2 || g1 != g2 || b1 != b2 || a1 != a2 {
+				spew.Dump(index, img_paletted.At(x, y), palette[index])
+				log.Fatal("internal error")
+			}
+			slices[x] = append(slices[x], index)
 		}
 	}
 
 	return slices
-}
-
-func make_block_states(column []uint8, palette_names []string, block_choices map[string]schematic.BlockState) []schematic.BlockState {
-	block_states := []schematic.BlockState{}
-	for y := 0; y < len(column); y++ {
-		block_states = append(block_states, block_choices[palette_names[column[y]]])
-	}
-
-	return block_states
 }
 
 func make_elevations(sequences []Sequence, directions []int) []int {
@@ -278,6 +242,28 @@ func make_directions(column []uint8) []int {
 	return directions
 }
 
+func color_equal(a color.Color, b color.Color) bool {
+	r1, g1, b1, a1 := a.RGBA()
+	r2, g2, b2, a2 := b.RGBA()
+
+	return r1 == r2 && g1 == g2 && b1 == b2 && a1 == a2
+}
+
+func make_schematic(elevations [][]int, palette []PaletteColor, img_paletted image.Paletted) schematic.Project {
+	project := schematic.NewProject("mapart", len(elevations), 256, len(elevations[0]))
+
+	for x := 0; x < len(elevations); x++ {
+		for y := 0; y < len(elevations[0]); y++ {
+			// this automatically adds a dummy block of ID 0
+			block := palette[img_paletted.ColorIndexAt(x, y-1)].block
+
+			project.SetBlock(x, elevations[x][y], y, block)
+		}
+	}
+
+	return *project
+}
+
 func main() {
 	input_file, err := os.Open("input.jpg")
 	if err != nil {
@@ -290,22 +276,15 @@ func main() {
 		log.Fatal("an error occured in decoding input.jpg: ", err)
 	}
 
-	palette_names, palette_colors, _ := make_palette()
+	palette := make_palette()
+	color_palette := make_color_palette(palette)
 
-	d := dither.NewDitherer(palette_colors)
+	d := dither.NewDitherer(color_palette)
 	d.Matrix = dither.FloydSteinberg
 
 	var img_paletted *image.Paletted = d.DitherPaletted(img)
 
-	var columns = make_columns(img_paletted)
-
-	block_choices := make_block_choices()
-
-	block_states := [][]schematic.BlockState{}
-
-	for x := 0; x < len(columns); x++ {
-		block_states = append(block_states, make_block_states(columns[x], palette_names, block_choices))
-	}
+	var columns = make_columns(img_paletted, palette)
 
 	directions := [][]int{}
 
@@ -322,18 +301,22 @@ func main() {
 	elevations := [][]int{}
 
 	for x := 0; x < len(columns); x++ {
-
 		elevations = append(elevations, make_elevations(sequences[x], directions[x]))
-		if x == 0 {
-			spew.Dump(elevations[0], sequences[0], directions[0])
-		}
 	}
 
-	output_file, err := os.Create("output.png")
+	project := make_schematic(elevations, palette, *img_paletted)
+
+	schematic_output_file, err := os.Create("output.litematic")
 	if err != nil {
-		fmt.Println("an error occured in creating output.png: {}", err)
+		log.Fatal("an error occured in creating output.litematic: ", err)
 	}
-	png.Encode(output_file, img_paletted)
+	project.Encode(schematic_output_file)
+
+	preview_output_file, err := os.Create("output.png")
+	if err != nil {
+		log.Fatal("an error occured in creating output.png: ", err)
+	}
+	png.Encode(preview_output_file, img_paletted)
 
 	fmt.Println("hello world")
 }
