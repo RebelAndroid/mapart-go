@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"image/jpeg"
 	"image/png"
 	"io"
 	"log"
@@ -168,28 +167,39 @@ func make_elevations(sequences []Sequence, directions []int) []int {
 	}
 
 	// if any portion of the structure goes to low, raise the entire column so it fits
-	if min_elevation < 0 {
+	// we want the bottom elevation to be at 1 to leave room for a scaffolding block below it
+	if min_elevation < 1 {
 		for i := 0; i < len(elevations); i++ {
-			elevations[i] -= min_elevation
+			elevations[i] -= min_elevation - 1
 		}
 	}
 
-	for i := 0; i < len(directions); i++ {
-		if directions[i] == LEVEL && elevations[i] != elevations[i+1] {
-			spew.Dump(i, elevations, directions, sequences)
-			log.Fatal("expected LEVEL")
-		}
-		if directions[i] == DOWN && elevations[i] <= elevations[i+1] {
-			spew.Dump(i, elevations, directions, sequences)
-			log.Fatal("expected DOWN")
-		}
-		if directions[i] == UP && elevations[i] >= elevations[i+1] {
-			spew.Dump(i, elevations, directions, sequences)
-			log.Fatal("expected UP")
-		}
+	if !test_elevations(elevations, directions) {
+		log.Fatal("error generating elevations")
 	}
 
 	return elevations
+}
+
+func test_elevations(elevations []int, directions []int) bool {
+	if len(elevations) != len(directions)+1 {
+		return false
+	}
+	for i := 0; i < len(directions); i++ {
+		if elevations[i] < 1 || elevations[i] > 255 {
+			return false
+		}
+		if directions[i] == LEVEL && elevations[i] != elevations[i+1] {
+			return false
+		}
+		if directions[i] == DOWN && elevations[i] <= elevations[i+1] {
+			return false
+		}
+		if directions[i] == UP && elevations[i] >= elevations[i+1] {
+			return false
+		}
+	}
+	return true
 }
 
 func make_sequences(directions []int) []Sequence {
@@ -256,7 +266,6 @@ func make_schematic(elevations [][]int, palette []PaletteColor, img_paletted ima
 		for y := 0; y < len(elevations[0]); y++ {
 			// this automatically adds a dummy block of ID 0
 			block := palette[img_paletted.ColorIndexAt(x, y-1)].block
-
 			project.SetBlock(x, elevations[x][y], y, block)
 		}
 	}
@@ -265,12 +274,18 @@ func make_schematic(elevations [][]int, palette []PaletteColor, img_paletted ima
 }
 
 func main() {
-	input_file, err := os.Open("input.jpg")
+
+	if len(os.Args) < 2 {
+		log.Fatal("expected at least command line argument: input filename")
+	}
+	input_filename := os.Args[1]
+
+	input_file, err := os.Open(input_filename)
 	if err != nil {
 		log.Fatal("an error occured in opening input.jpg: ", err)
 	}
 
-	img, err := jpeg.Decode(input_file)
+	img, _, err := image.Decode(input_file)
 
 	if err != nil {
 		log.Fatal("an error occured in decoding input.jpg: ", err)
@@ -318,5 +333,5 @@ func main() {
 	}
 	png.Encode(preview_output_file, img_paletted)
 
-	fmt.Println("hello world")
+	fmt.Println("finished")
 }
