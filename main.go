@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	_ "image/jpeg"
 	"image/png"
 	"io"
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/makeworld-the-better-one/dither/v2"
@@ -38,16 +40,17 @@ func (b Block) ID() string {
 }
 
 type PaletteColor struct {
-	color color.Color
-	name  string
-	block Block
+	color    color.Color
+	name     string
+	block    Block
+	scaffold bool
 }
 
 func make_palette() []PaletteColor {
 
 	palette_file, err := os.Open("blockdata.csv")
 	if err != nil {
-		log.Fatal("an error occured in opening input.jpg: ", err)
+		log.Fatal("an error occured in opening blockdata.csv: ", err)
 	}
 
 	palette := []PaletteColor{}
@@ -64,7 +67,7 @@ func make_palette() []PaletteColor {
 			log.Fatal(err)
 		}
 
-		if len(record) != 5 {
+		if len(record) != 6 {
 			log.Fatal("unexpected number of values in blockdata.csv:", len(record))
 		}
 		R, _ := strconv.Atoi(record[0])
@@ -81,10 +84,16 @@ func make_palette() []PaletteColor {
 		Bdown := uint8(B * 180 / 255)
 		A := uint8(255)
 
+		sc_str := strings.ToLower(strings.Trim(record[5], "\t "))
+		scaffold := sc_str == "true"
+		if (!scaffold) && (sc_str != "false") {
+			log.Fatal("unexpected scaffold value (should be \"true\" or \"false\"): ", record[5])
+		}
+
 		// must be in the same order as the "enum"
-		palette = append(palette, PaletteColor{color: color.NRGBA{R: Rlevel, G: Glevel, B: Blevel, A: A}, name: record[3] + "LEVEL", block: Block{record[4]}})
-		palette = append(palette, PaletteColor{color: color.NRGBA{R: Rup, G: Gup, B: Bup, A: A}, name: record[3] + "UP", block: Block{record[4]}})
-		palette = append(palette, PaletteColor{color: color.NRGBA{R: Rdown, G: Gdown, B: Bdown, A: A}, name: record[3] + "DOWN", block: Block{record[4]}})
+		palette = append(palette, PaletteColor{color: color.NRGBA{R: Rlevel, G: Glevel, B: Blevel, A: A}, name: record[3] + "LEVEL", block: Block{record[4]}, scaffold: scaffold})
+		palette = append(palette, PaletteColor{color: color.NRGBA{R: Rup, G: Gup, B: Bup, A: A}, name: record[3] + "UP", block: Block{record[4]}, scaffold: scaffold})
+		palette = append(palette, PaletteColor{color: color.NRGBA{R: Rdown, G: Gdown, B: Bdown, A: A}, name: record[3] + "DOWN", block: Block{record[4]}, scaffold: scaffold})
 	}
 
 	return palette
@@ -259,14 +268,18 @@ func color_equal(a color.Color, b color.Color) bool {
 	return r1 == r2 && g1 == g2 && b1 == b2 && a1 == a2
 }
 
-func make_schematic(elevations [][]int, palette []PaletteColor, img_paletted image.Paletted) schematic.Project {
+func make_schematic(elevations [][]int, palette []PaletteColor, img_paletted image.Paletted, scaffold_block Block) schematic.Project {
 	project := schematic.NewProject("mapart", len(elevations), 256, len(elevations[0]))
 
 	for x := 0; x < len(elevations); x++ {
 		for y := 0; y < len(elevations[0]); y++ {
-			// this automatically adds a dummy block of ID 0
 			block := palette[img_paletted.ColorIndexAt(x, y-1)].block
-			project.SetBlock(x, elevations[x][y], y, block)
+			// one is added to all elevations to make space for scaffolding blocks
+			project.SetBlock(x, elevations[x][y]+1, y, block)
+
+			if palette[img_paletted.ColorIndexAt(x, y-1)].scaffold {
+				project.SetBlock(x, elevations[x][y], y, scaffold_block)
+			}
 		}
 	}
 
@@ -282,13 +295,13 @@ func main() {
 
 	input_file, err := os.Open(input_filename)
 	if err != nil {
-		log.Fatal("an error occured in opening input.jpg: ", err)
+		log.Fatal("an error occured in opening input image: ", err)
 	}
 
 	img, _, err := image.Decode(input_file)
 
 	if err != nil {
-		log.Fatal("an error occured in decoding input.jpg: ", err)
+		log.Fatal("an error occured in decoding input image: ", err)
 	}
 
 	palette := make_palette()
@@ -319,7 +332,7 @@ func main() {
 		elevations = append(elevations, make_elevations(sequences[x], directions[x]))
 	}
 
-	project := make_schematic(elevations, palette, *img_paletted)
+	project := make_schematic(elevations, palette, *img_paletted, Block{id: "minecraft:stone"})
 
 	schematic_output_file, err := os.Create("output.litematic")
 	if err != nil {
