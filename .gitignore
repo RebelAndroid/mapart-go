@@ -2,4 +2,4 @@
 *.jpg
 .direnv
 output.txt
-output.litematic
+*.litematic

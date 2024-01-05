@@ -23,6 +23,7 @@
             buildInputs = [
               go
               gopls
+              delve
             ];
           };
         }

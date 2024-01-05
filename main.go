@@ -286,14 +286,100 @@ func make_schematic(elevations [][]int, palette []PaletteColor, img_paletted ima
 	return *project
 }
 
-func main() {
+type Args struct {
+	input_file         string
+	preview_location   string
+	schematic_location string
+	staircase          bool
+	dither_type        string
+}
 
-	if len(os.Args) < 2 {
-		log.Fatal("expected at least command line argument: input filename")
+func parse() Args {
+	args := Args{
+		input_file:         "",
+		schematic_location: "",
+		preview_location:   "",
+		staircase:          false,
+		dither_type:        "",
 	}
-	input_filename := os.Args[1]
 
-	input_file, err := os.Open(input_filename)
+	for i := 1; i < len(os.Args); i++ {
+		if strings.HasPrefix(os.Args[i], "--") {
+			if args.input_file != "" {
+				log.Println("options should be placed before arguments")
+			}
+			if os.Args[i] == "--staircase" {
+				log.Fatal("unimplemented!")
+				if args.staircase {
+					log.Println("staircase specified twice")
+				}
+				args.staircase = true
+				continue
+			}
+			mode, dither := strings.CutPrefix(os.Args[i], "--dither=")
+			if dither {
+				args.dither_type = mode
+				continue
+			}
+			log.Fatal("unknown option: ", os.Args[i])
+		}
+		if strings.HasPrefix(os.Args[i], "-") {
+			if args.input_file != "" {
+				log.Println("options should be placed before arguments")
+			}
+			if os.Args[0] == "-s" {
+				log.Fatal("unimplemented!")
+				if args.staircase {
+					log.Println("staircase specified twice")
+				}
+				args.staircase = true
+				continue
+			}
+		}
+		if args.input_file == "" {
+			args.input_file = os.Args[i]
+			continue
+		}
+		if args.schematic_location == "" {
+			if !strings.HasSuffix(os.Args[i], ".litematic") {
+				log.Fatal("Output location should be a .litematic file! Found: ", os.Args[i])
+			}
+			args.schematic_location = os.Args[i]
+			continue
+		}
+		if args.preview_location == "" {
+			if !strings.HasSuffix(os.Args[i], ".png") {
+				log.Fatal("Output location should be a .png file! Found: ", os.Args[i])
+			}
+			args.preview_location = os.Args[i]
+			continue
+		}
+		log.Fatal("too many arguments")
+	}
+
+	if args.input_file == "" {
+		args.input_file = "input.png"
+	}
+
+	if args.schematic_location == "" {
+		args.schematic_location = "output.litematic"
+	}
+
+	if args.preview_location == "" {
+		args.preview_location = "output.png"
+	}
+
+	if args.dither_type == "" {
+		args.dither_type = "floyd-steinberg"
+	}
+
+	return args
+}
+
+func main() {
+	args := parse()
+
+	input_file, err := os.Open(args.input_file)
 	if err != nil {
 		log.Fatal("an error occured in opening input image: ", err)
 	}
@@ -308,7 +394,13 @@ func main() {
 	color_palette := make_color_palette(palette)
 
 	d := dither.NewDitherer(color_palette)
-	d.Matrix = dither.FloydSteinberg
+	if args.dither_type == "floyd-steinberg" {
+		d.Matrix = dither.FloydSteinberg
+	} else if args.dither_type == "stucki" {
+		d.Matrix = dither.Stucki
+	} else {
+		log.Fatal("Unknown dither type: ", args.dither_type, "\nValid dither types are: floyd-steinberg, stucki")
+	}
 
 	var img_paletted *image.Paletted = d.DitherPaletted(img)
 
@@ -334,15 +426,15 @@ func main() {
 
 	project := make_schematic(elevations, palette, *img_paletted, Block{id: "minecraft:stone"})
 
-	schematic_output_file, err := os.Create("output.litematic")
+	schematic_output_file, err := os.Create(args.schematic_location)
 	if err != nil {
-		log.Fatal("an error occured in creating output.litematic: ", err)
+		log.Fatal("an error occured in creating output schematic: ", err)
 	}
 	project.Encode(schematic_output_file)
 
-	preview_output_file, err := os.Create("output.png")
+	preview_output_file, err := os.Create(args.preview_location)
 	if err != nil {
-		log.Fatal("an error occured in creating output.png: ", err)
+		log.Fatal("an error occured in creating output preview: ", err)
 	}
 	png.Encode(preview_output_file, img_paletted)
 
