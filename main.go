@@ -292,6 +292,23 @@ type Args struct {
 	schematic_location string
 	staircase          bool
 	dither_type        string
+	scaffold_block     string
+	dither_strength    float32
+}
+
+func print_help_text() {
+	println("Usage: mapart-go [OPTION]... [INPUT] [SCHEMATIC] [PREVIEW]")
+	println("Generates a mapart schematic from INPUT, writes it to SCHEMATIC, and writes a preview png to PREVIEW")
+	println("Default INPUT is 'input.png', default SCHEMATIC is 'output.litematic', default PREVIEW is output.png")
+	println()
+	println("Options")
+	println("-s, --staircase    \tcurrently unused, will cause the program to exit unsuccessfully")
+	println("--dither=DITHER    \tthe dither mode to use, defaults to 'floyd-steinberg', currently available options are floyd-steinberg, false-floyd-steinberg,\n\tjarvis-judice-ninke, atkinson, stucki, burkes, sierra, sierra2, sierra-lite, steven-pigeon, simple-2d, or noise")
+	println("--scaffold=SCAFFOLD\tthe block to use for scaffolding, defaults to 'cobblestone'")
+	println("--strength=STRENGTH\tthe strength of the dither effect")
+	println()
+	println("Please report any issues to <https://github.com/RebelAndroid/mapart-go>")
+
 }
 
 func parse() Args {
@@ -301,10 +318,16 @@ func parse() Args {
 		preview_location:   "",
 		staircase:          false,
 		dither_type:        "",
+		scaffold_block:     "",
+		dither_strength:    0,
 	}
 
 	for i := 1; i < len(os.Args); i++ {
 		if strings.HasPrefix(os.Args[i], "--") {
+			if os.Args[i] == "--help" {
+				print_help_text()
+				os.Exit(0)
+			}
 			if args.input_file != "" {
 				log.Println("options should be placed before arguments")
 			}
@@ -321,9 +344,27 @@ func parse() Args {
 				args.dither_type = mode
 				continue
 			}
+			block, scaffold := strings.CutPrefix(os.Args[i], "--scaffold=")
+			if scaffold {
+				args.scaffold_block = block
+				continue
+			}
+			strength, hasStrength := strings.CutPrefix(os.Args[i], "--strength=")
+			if hasStrength {
+				float_strength, err := strconv.ParseFloat(strength, 32)
+				if err != nil {
+					log.Fatal("Unable to parse strength: ", strength, ". Expected a number")
+				}
+				args.dither_strength = float32(float_strength)
+				continue
+			}
 			log.Fatal("unknown option: ", os.Args[i])
 		}
 		if strings.HasPrefix(os.Args[i], "-") {
+			if os.Args[0] == "-h" {
+				print_help_text()
+				os.Exit(0)
+			}
 			if args.input_file != "" {
 				log.Println("options should be placed before arguments")
 			}
@@ -373,6 +414,15 @@ func parse() Args {
 		args.dither_type = "floyd-steinberg"
 	}
 
+	if args.scaffold_block == "" {
+		args.scaffold_block = "cobblestone"
+	}
+
+	// I'm putting this here to keep the default values together, but we could just initialize the value of args.dither_strength as 1
+	if args.dither_strength == 0 {
+		args.dither_strength = 1.0
+	}
+
 	return args
 }
 
@@ -394,12 +444,36 @@ func main() {
 	color_palette := make_color_palette(palette)
 
 	d := dither.NewDitherer(color_palette)
-	if args.dither_type == "floyd-steinberg" {
-		d.Matrix = dither.FloydSteinberg
-	} else if args.dither_type == "stucki" {
-		d.Matrix = dither.Stucki
-	} else {
-		log.Fatal("Unknown dither type: ", args.dither_type, "\nValid dither types are: floyd-steinberg, stucki")
+
+	d.Serpentine = true
+
+	switch args.dither_type {
+	case "floyd-steinberg":
+		d.Matrix = dither.ErrorDiffusionStrength(dither.FloydSteinberg, args.dither_strength)
+	case "false-floyd-steinberg":
+		d.Matrix = dither.ErrorDiffusionStrength(dither.FalseFloydSteinberg, args.dither_strength)
+	case "jarvis-judice-ninke":
+		d.Matrix = dither.ErrorDiffusionStrength(dither.JarvisJudiceNinke, args.dither_strength)
+	case "atkinson":
+		d.Matrix = dither.ErrorDiffusionStrength(dither.Atkinson, args.dither_strength)
+	case "stucki":
+		d.Matrix = dither.ErrorDiffusionStrength(dither.Stucki, args.dither_strength)
+	case "burkes":
+		d.Matrix = dither.ErrorDiffusionStrength(dither.Burkes, args.dither_strength)
+	case "sierra":
+		d.Matrix = dither.ErrorDiffusionStrength(dither.Sierra, args.dither_strength)
+	case "sierra2":
+		d.Matrix = dither.ErrorDiffusionStrength(dither.Sierra2, args.dither_strength)
+	case "sierra-lite":
+		d.Matrix = dither.ErrorDiffusionStrength(dither.SierraLite, args.dither_strength)
+	case "steven-pigeon":
+		d.Matrix = dither.ErrorDiffusionStrength(dither.StevenPigeon, args.dither_strength)
+	case "simple-2d":
+		d.Matrix = dither.ErrorDiffusionStrength(dither.Simple2D, args.dither_strength)
+	case "noise":
+		d.Mapper = dither.RandomNoiseRGB(-args.dither_strength, args.dither_strength, -args.dither_strength, args.dither_strength, -args.dither_strength, args.dither_strength)
+	default:
+		log.Fatal("unknown dither mode: ", args.dither_type, ". Expected floyd-steinberg, false-floyd-steinberg, jarvis-judice-ninke, atkinson, stucki, burkes, sierra, sierra2, sierra-lite, steven-pigeon, simple-2d, or noise")
 	}
 
 	var img_paletted *image.Paletted = d.DitherPaletted(img)
@@ -424,7 +498,7 @@ func main() {
 		elevations = append(elevations, make_elevations(sequences[x], directions[x]))
 	}
 
-	project := make_schematic(elevations, palette, *img_paletted, Block{id: "minecraft:stone"})
+	project := make_schematic(elevations, palette, *img_paletted, Block{id: "minecraft:" + args.scaffold_block})
 
 	schematic_output_file, err := os.Create(args.schematic_location)
 	if err != nil {

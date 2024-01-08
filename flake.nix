@@ -1,5 +1,5 @@
 {
-  description = "A devShell example";
+  description = "A go devShell.";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -24,6 +24,7 @@
               go
               gopls
               delve
+              go-tools
             ];
           };
         }

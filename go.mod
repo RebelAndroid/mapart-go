@@ -1,4 +1,4 @@
-module example
+module mapart-go
 
 go 1.21.4
 
